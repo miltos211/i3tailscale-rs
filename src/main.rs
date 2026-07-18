@@ -195,12 +195,10 @@ fn main() -> anyhow::Result<()> {
     // the normal (invisible) stderr path, no further escalation. `status`
     // is deliberately excluded — it's polled every few seconds by the bar,
     // and notifying on every failed poll would be spam, not a UX fix.
-    if is_peer_pick {
-        if let Err(err) = &result {
-            let _ = Command::new("notify-send")
-                .args(["i3tailscale", &format!("peer-pick failed: {err}")])
-                .status();
-        }
+    if let (true, Err(err)) = (is_peer_pick, &result) {
+        let _ = Command::new("notify-send")
+            .args(["i3tailscale", &format!("peer-pick failed: {err}")])
+            .status();
     }
     result
 }
