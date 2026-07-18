@@ -14,11 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Update Rust toolchain
+        run: rustup update stable && rustup default stable
+
       - name: Install musl target and linker
         run: |
           rustup target add x86_64-unknown-linux-musl
           sudo apt-get update
           sudo apt-get install -y musl-tools
+
+      - name: cargo test
+        run: cargo test
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-musl

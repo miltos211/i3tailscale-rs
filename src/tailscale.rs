@@ -13,9 +13,9 @@ pub struct Status {
 
 #[derive(Debug, Deserialize)]
 pub struct Peer {
-    #[serde(rename = "HostName")]
+    #[serde(rename = "HostName", default)]
     pub host_name: String,
-    #[serde(rename = "DNSName")]
+    #[serde(rename = "DNSName", default)]
     pub dns_name: String,
     #[serde(rename = "Online", default)]
     pub online: bool,
@@ -60,11 +60,18 @@ impl Status {
         entries
     }
 
-    pub fn find_peer(&self, host_name: &str) -> Option<&Peer> {
-        self.peer_list()
-            .into_iter()
-            .find(|(p, _)| p.host_name == host_name)
-            .map(|(p, _)| p)
+    /// Looks up a peer by DNS name, not hostname — `HostName` is a
+    /// self-reported, unenforced field and can collide between peers (two
+    /// devices can share a hostname). `DNSName` is the field Tailscale's
+    /// MagicDNS actually guarantees unique (deduplicated with a `-1`/`-2`
+    /// suffix), so it's the only safe key for resolving exactly the peer
+    /// the user picked. Iterates directly rather than going through the
+    /// sorted `peer_list()` — this is a lookup, not a display list.
+    pub fn find_peer_by_dns_name(&self, dns_name: &str) -> Option<&Peer> {
+        self.peers
+            .values()
+            .chain(std::iter::once(&self.myself))
+            .find(|p| p.dns_name == dns_name)
     }
 }
 
@@ -134,11 +141,11 @@ mod tests {
     #[test]
     fn ipv4_picked_out_of_mixed_ip_list() {
         let status = Status::from_json(SAMPLE_JSON).unwrap();
-        let peer_a = status.find_peer("peer-a").unwrap();
+        let peer_a = status.find_peer_by_dns_name("peer-a.tailnet.ts.net.").unwrap();
         assert_eq!(peer_a.ipv4(), Some("100.64.0.1"));
 
         // peer-b has no TailscaleIPs in the fixture at all (defaults to empty).
-        let peer_b = status.find_peer("peer-b").unwrap();
+        let peer_b = status.find_peer_by_dns_name("peer-b.tailnet.ts.net.").unwrap();
         assert_eq!(peer_b.ipv4(), None);
     }
 
@@ -154,12 +161,49 @@ mod tests {
     }
 
     #[test]
-    fn find_peer_by_hostname() {
+    fn find_peer_by_dns_name() {
         let status = Status::from_json(SAMPLE_JSON).unwrap();
-        let peer = status.find_peer("peer-a").expect("peer-a exists");
+        let peer = status
+            .find_peer_by_dns_name("peer-a.tailnet.ts.net.")
+            .expect("peer-a exists");
         assert_eq!(peer.host_name, "peer-a");
         assert_eq!(peer.dns_name, "peer-a.tailnet.ts.net.");
-        assert!(status.find_peer("nonexistent").is_none());
+        assert!(status.find_peer_by_dns_name("nonexistent").is_none());
+    }
+
+    // The real bug this was fixed for: HostName isn't guaranteed unique
+    // across a tailnet (unlike DNSName, which MagicDNS deduplicates), so
+    // looking a peer up by hostname could silently resolve to the wrong
+    // device. Two peers sharing a hostname but with distinct DNS names must
+    // still resolve correctly when looked up by DNS name.
+    #[test]
+    fn duplicate_hostnames_resolve_correctly_by_dns_name() {
+        const DUPLICATE_HOSTNAME_JSON: &str = r#"{
+            "BackendState": "Running",
+            "Self": {
+                "HostName": "self-device",
+                "DNSName": "self-device.tailnet.ts.net."
+            },
+            "Peer": {
+                "n1": {
+                    "HostName": "laptop",
+                    "DNSName": "laptop.tailnet.ts.net.",
+                    "TailscaleIPs": ["100.64.0.1"]
+                },
+                "n2": {
+                    "HostName": "laptop",
+                    "DNSName": "laptop-1.tailnet.ts.net.",
+                    "TailscaleIPs": ["100.64.0.2"]
+                }
+            }
+        }"#;
+        let status = Status::from_json(DUPLICATE_HOSTNAME_JSON).unwrap();
+
+        let first = status.find_peer_by_dns_name("laptop.tailnet.ts.net.").unwrap();
+        assert_eq!(first.ipv4(), Some("100.64.0.1"));
+
+        let second = status.find_peer_by_dns_name("laptop-1.tailnet.ts.net.").unwrap();
+        assert_eq!(second.ipv4(), Some("100.64.0.2"));
     }
 
     #[test]

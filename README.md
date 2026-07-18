@@ -56,7 +56,7 @@ icon_off = "toggle_off"  # optional — same caveat
 interval = 5
 ```
 
-Use an absolute path for `command_state` — i3status-rust's exec environment doesn't reliably resolve `PATH` the way an interactive shell does.
+Use an absolute path for `command_state` (pointing at wherever you installed `i3tailscale`, e.g. `~/.local/bin/i3tailscale`) — i3status-rust's exec environment doesn't reliably resolve `PATH` for binaries outside standard system directories. `tailscale`/`rofi` themselves are fine as bare commands in `command_on`/`command_off` above since they're installed via a package manager into a directory that's on `PATH` for virtually any setup (`/usr/bin` or similar); if that's not the case on yours, use their absolute paths too.
 
 There's no generic right-click/click-override hook on i3status-rust blocks (at least not on the version this was tested against), so the peer picker is bound as a plain i3 keybinding instead of a bar click. In your i3 `config`:
 
@@ -67,6 +67,8 @@ bindsym $mod+p exec --no-startup-id /path/to/i3tailscale peer-pick
 Press the bound key, pick a peer from the rofi list — **Enter** copies its Tailscale DNS name, **Alt+Enter** copies its Tailscale IPv4 address.
 
 ## Build from source
+
+Requires Rust 1.85+ (this project uses the 2024 edition) — recent enough that some distro-packaged toolchains may be too old; [rustup](https://rustup.rs) always has a current one.
 
 ```
 git clone https://github.com/miltos211/i3tailscale-rs.git
